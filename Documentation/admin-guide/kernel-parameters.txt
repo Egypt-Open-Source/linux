@@ -1118,6 +1118,10 @@
 			MTRR settings.  This parameter disables that behavior,
 			possibly causing your machine to run very slowly.
 
+	disable_stackdump_onpanic
+			Disabling this parameter prevents call stack dumping during a panic,
+			potentially obscuring earlier messages that could have led to the panic.
+
 	disable_timer_pin_1 [X86,EARLY]
 			Disable PIN 1 of APIC timer
 			Can be useful to work around chipset bugs.
