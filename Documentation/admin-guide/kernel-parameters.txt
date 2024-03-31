@@ -1118,7 +1118,7 @@
 			MTRR settings.  This parameter disables that behavior,
 			possibly causing your machine to run very slowly.
 
-	disable_stackdump_onpanic
+	disable_stack_dump_on_panic
 			Disabling this parameter prevents call stack dumping during a panic,
 			potentially obscuring earlier messages that could have led to the panic.
 
