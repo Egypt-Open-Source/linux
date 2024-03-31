@@ -270,6 +270,16 @@ static void panic_other_cpus_shutdown(bool crash_kexec)
 		crash_smp_send_stop();
 }
 
+static int disable_stackdump_onpanic __initdata;
+
+static int __init disable_stackdump_onpanic(char *str)
+{
+	disable_stack_dump_on_panic = 1;
+	return 0;
+}
+
++early_param("disable_stack_dump_on_panic", disable_stack_dump_on_panic_setup);
+
 /**
  *	panic - halt the system
  *	@fmt: The text string to print
@@ -344,7 +354,7 @@ void panic(const char *fmt, ...)
 	/*
 	 * Avoid nested stack-dumping if a panic occurs during oops processing
 	 */
-	if (!test_taint(TAINT_DIE) && oops_in_progress <= 1)
+	if (!test_taint(TAINT_DIE) && oops_in_progress <= 1 && !disable_stackdump_onpanic)
 		dump_stack();
 #endif
 
