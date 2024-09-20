@@ -15,8 +15,7 @@
 #include <linux/mfd/intel_soc_pmic.h>
 #include <linux/mfd/intel_soc_pmic_bxtwc.h>
 #include <linux/module.h>
-
-#include <asm/intel_scu_ipc.h>
+#include <linux/platform_data/x86/intel_scu_ipc.h>
 
 /* PMIC device registers */
 #define REG_ADDR_MASK		GENMASK(15, 8)
@@ -581,5 +580,6 @@ static struct platform_driver bxtwc_driver = {
 
 module_platform_driver(bxtwc_driver);
 
+MODULE_DESCRIPTION("Intel Broxton Whiskey Cove PMIC MFD core driver");
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Qipeng Zha <qipeng.zha@intel.com>");

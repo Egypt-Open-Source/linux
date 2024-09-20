@@ -239,6 +239,13 @@ cgroup v2 currently supports the following mount options.
           will not be tracked by the memory controller (even if cgroup
           v2 is remounted later on).
 
+  pids_localevents
+        The option restores v1-like behavior of pids.events:max, that is only
+        local (inside cgroup proper) fork failures are counted. Without this
+        option pids.events.max represents any pids.max enforcemnt across
+        cgroup's subtree.
+
+
 
 Organizing Processes and Threads
 --------------------------------
@@ -526,10 +533,12 @@ cgroup namespace on namespace creation.
 Because the resource control interface files in a given directory
 control the distribution of the parent's resources, the delegatee
 shouldn't be allowed to write to them.  For the first method, this is
-achieved by not granting access to these files.  For the second, the
-kernel rejects writes to all files other than "cgroup.procs" and
-"cgroup.subtree_control" on a namespace root from inside the
-namespace.
+achieved by not granting access to these files.  For the second, files
+outside the namespace should be hidden from the delegatee by the means
+of at least mount namespacing, and the kernel rejects writes to all
+files on a namespace root from inside the cgroup namespace, except for
+those files listed in "/sys/kernel/cgroup/delegate" (including
+"cgroup.procs", "cgroup.threads", "cgroup.subtree_control", etc.).
 
 The end results are equivalent for both delegation types.  Once
 delegated, the user can build sub-hierarchy under the directory,
@@ -974,6 +983,14 @@ All cgroup core files are prefixed with "cgroup."
 		A dying cgroup can consume system resources not exceeding
 		limits, which were active at the moment of cgroup deletion.
 
+	  nr_subsys_<cgroup_subsys>
+		Total number of live cgroup subsystems (e.g memory
+		cgroup) at and beneath the current cgroup.
+
+	  nr_dying_subsys_<cgroup_subsys>
+		Total number of dying cgroup subsystems (e.g. memory
+		cgroup) at and beneath the current cgroup.
+
   cgroup.freeze
 	A read-write single value file which exists on non-root cgroups.
 	Allowed values are "0" and "1". The default is "0".
@@ -1299,16 +1316,9 @@ PAGE_SIZE multiple when read back.
 	This is a simple interface to trigger memory reclaim in the
 	target cgroup.
 
-	This file accepts a single key, the number of bytes to reclaim.
-	No nested keys are currently supported.
-
 	Example::
 
 	  echo "1G" > memory.reclaim
-
-	The interface can be later extended with nested keys to
-	configure the reclaim behavior. For example, specify the
-	type of memory to reclaim from (anon, file, ..).
 
 	Please note that the kernel can over or under reclaim from
 	the target cgroup. If less bytes are reclaimed than the
@@ -1320,6 +1330,17 @@ PAGE_SIZE multiple when read back.
 	the memory reclaim normally is not exercised in this case.
 	This means that the networking layer will not adapt based on
 	reclaim induced by memory.reclaim.
+
+The following nested keys are defined.
+
+	  ==========            ================================
+	  swappiness            Swappiness value to reclaim with
+	  ==========            ================================
+
+	Specifying a swappiness value instructs the kernel to perform
+	the reclaim with that swappiness value. Note that this has the
+	same semantics as vm.swappiness applied to memcg reclaim with
+	all the existing limitations and potential future extensions.
 
   memory.peak
 	A read-only single value file which exists on non-root
@@ -1706,9 +1727,10 @@ PAGE_SIZE multiple when read back.
 	entries fault back in or are written out to disk.
 
   memory.zswap.writeback
-	A read-write single value file. The default value is "1". The
-	initial value of the root cgroup is 1, and when a new cgroup is
-	created, it inherits the current value of its parent.
+	A read-write single value file. The default value is "1".
+	Note that this setting is hierarchical, i.e. the writeback would be
+	implicitly disabled for child cgroups if the upper hierarchy
+	does so.
 
 	When this is set to 0, all swapping attempts to swapping devices
 	are disabled. This included both zswap writebacks, and swapping due
@@ -2205,12 +2227,18 @@ PID Interface Files
 	descendants has ever reached.
 
   pids.events
-	A read-only flat-keyed file which exists on non-root cgroups. The
-	following entries are defined. Unless specified otherwise, a value
-	change in this file generates a file modified event.
+	A read-only flat-keyed file which exists on non-root cgroups. Unless
+	specified otherwise, a value change in this file generates a file
+	modified event. The following entries are defined.
 
 	  max
-		Number of times fork failed because limit was hit.
+		The number of times the cgroup's total number of processes hit the pids.max
+		limit (see also pids_localevents).
+
+  pids.events.local
+	Similar to pids.events but the fields in the file are local
+	to the cgroup i.e. not hierarchical. The file modified event
+	generated on this file reflects only the local events.
 
 Organisational operations are not blocked by cgroup policies, so it is
 possible to have pids.current > pids.max.  This can be done by either
@@ -2346,8 +2374,12 @@ Cpuset Interface Files
 	is always a subset of it.
 
 	Users can manually set it to a value that is different from
-	"cpuset.cpus".	The only constraint in setting it is that the
-	list of CPUs must be exclusive with respect to its sibling.
+	"cpuset.cpus".	One constraint in setting it is that the list of
+	CPUs must be exclusive with respect to "cpuset.cpus.exclusive"
+	of its sibling.  If "cpuset.cpus.exclusive" of a sibling cgroup
+	isn't set, its "cpuset.cpus" value, if set, cannot be a subset
+	of it to leave at least one CPU available when the exclusive
+	CPUs are taken away.
 
 	For a parent cgroup, any one of its exclusive CPUs can only
 	be distributed to at most one of its child cgroups.  Having an
@@ -2363,8 +2395,8 @@ Cpuset Interface Files
 	cpuset-enabled cgroups.
 
 	This file shows the effective set of exclusive CPUs that
-	can be used to create a partition root.  The content of this
-	file will always be a subset of "cpuset.cpus" and its parent's
+	can be used to create a partition root.  The content
+	of this file will always be a subset of its parent's
 	"cpuset.cpus.exclusive.effective" if its parent is not the root
 	cgroup.  It will also be a subset of "cpuset.cpus.exclusive"
 	if it is set.  If "cpuset.cpus.exclusive" is not set, it is
@@ -2625,6 +2657,15 @@ Miscellaneous controller provides 3 interface files. If two misc resources (res_
 	  res_a 3
 	  res_b 0
 
+  misc.peak
+        A read-only flat-keyed file shown in all cgroups.  It shows the
+        historical maximum usage of the resources in the cgroup and its
+        children.::
+
+	  $ cat misc.peak
+	  res_a 10
+	  res_b 8
+
   misc.max
         A read-write flat-keyed file shown in the non root cgroups. Allowed
         maximum usage of the resources in the cgroup and its children.::
@@ -2653,6 +2694,11 @@ Miscellaneous controller provides 3 interface files. If two misc resources (res_
 	  max
 		The number of times the cgroup's resource usage was
 		about to go over the max boundary.
+
+  misc.events.local
+        Similar to misc.events but the fields in the file are local to the
+        cgroup i.e. not hierarchical. The file modified event generated on
+        this file reflects only the local events.
 
 Migration and Ownership
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -2904,8 +2950,8 @@ Deprecated v1 Core Features
 
 - "cgroup.clone_children" is removed.
 
-- /proc/cgroups is meaningless for v2.  Use "cgroup.controllers" file
-  at the root instead.
+- /proc/cgroups is meaningless for v2.  Use "cgroup.controllers" or
+  "cgroup.stat" files at the root instead.
 
 
 Issues with v1 and Rationales for v2
